@@ -62,8 +62,7 @@ if "movies" not in st.session_state:
 # Show information of the data
 st.header("Data overview")
 st.info(
-    "You can edit the data by double clicking on a cell. Note how the plots below "
-    "update automatically! You can also sort the table by clicking on the column headers.",
+    "You can edit the data by double clicking on a cell. You can also sort the table by clicking on the column headers.",
     icon="✍️",
 )
 # Interaction Information
