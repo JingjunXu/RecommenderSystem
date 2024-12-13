@@ -1,172 +1,287 @@
 import datetime
 import random
 
+import os
 import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from main import train, eval
 
 # Show app title and description.
-st.set_page_config(page_title="Support tickets", page_icon="🎫")
-st.title("🎫 Support tickets")
+st.set_page_config(page_title="Recommender System", page_icon="🎫")
+st.title("🎫 Recommender System")
 st.write(
     """
-    This app shows how you can build an internal tool in Streamlit. Here, we are 
-    implementing a support ticket workflow. The user can create a ticket, edit 
-    existing tickets, and view some statistics.
+    This app demonstrate a simple demo of how to use GNN-based autoencoder 
+    to implement a Recommender System.
     """
 )
 
-# Create a random Pandas dataframe with existing tickets.
-if "df" not in st.session_state:
+# Create the dataset
+# Function used to load the data
+def read_data():
+    data_dir = os.path.join("data", "ml-100k")
+    # edge data
+    edge_train = pd.read_csv(os.path.join(data_dir, 'u1.base'), sep='\t',
+                                header=None, names=['User_ID', 'Movie_ID', 'Rating', 'timestamp'])
+    edge_train.loc[:, 'usage'] = 'train'
+    edge_test = pd.read_csv(os.path.join(data_dir, 'u1.test'), sep='\t',
+                            header=None, names=['User_ID', 'Movie_ID', 'Rating', 'timestamp'])
+    edge_test.loc[:, 'usage'] = 'test'
+    edge_df = pd.concat((edge_train, edge_test),
+                        axis=0).drop(columns='timestamp')
+    edge_df.loc[:, 'Rating'] -= 1
+    # item feature
+    sep = r'|'
+    movie_file = os.path.join(data_dir, 'u.item')
+    movie_headers = ['Movie_ID', 'Movie_Title', 'Release_Date', 'Video_Release_Date',
+                        'IMDb_URL', 'unknown', 'Action', 'Adventure', 'Animation',
+                        'Childrens', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Fantasy',
+                        'Film-Noir', 'Horror', 'Musical', 'Mystery', 'Romance', 'Sci-Fi',
+                        'Thriller', 'War', 'Western']
+    movie_df = pd.read_csv(movie_file, sep=sep, header=None,
+                            names=movie_headers, encoding='latin1')
+    # user feature
+    users_file = os.path.join(data_dir, 'u.user')
+    users_headers = ['User_ID', 'Age',
+                        'Gender', 'Occupation', 'Zip_code']
+    users_df = pd.read_csv(users_file, sep=sep, header=None,
+                            names=users_headers, encoding='latin1')
+    return edge_df, users_df, movie_df
+# Load Data
+interactions, users, movies = read_data()
+# Add data into session_state
+if "interactions" not in st.session_state:
+    st.session_state.interactions = interactions
+if "users" not in st.session_state:
+    st.session_state.users = users
+if "movies" not in st.session_state:
+    st.session_state.movies = movies
 
-    # Set seed for reproducibility.
-    np.random.seed(42)
-
-    # Make up some fake issue descriptions.
-    issue_descriptions = [
-        "Network connectivity issues in the office",
-        "Software application crashing on startup",
-        "Printer not responding to print commands",
-        "Email server downtime",
-        "Data backup failure",
-        "Login authentication problems",
-        "Website performance degradation",
-        "Security vulnerability identified",
-        "Hardware malfunction in the server room",
-        "Employee unable to access shared files",
-        "Database connection failure",
-        "Mobile application not syncing data",
-        "VoIP phone system issues",
-        "VPN connection problems for remote employees",
-        "System updates causing compatibility issues",
-        "File server running out of storage space",
-        "Intrusion detection system alerts",
-        "Inventory management system errors",
-        "Customer data not loading in CRM",
-        "Collaboration tool not sending notifications",
-    ]
-
-    # Generate the dataframe with 100 rows/tickets.
-    data = {
-        "ID": [f"TICKET-{i}" for i in range(1100, 1000, -1)],
-        "Issue": np.random.choice(issue_descriptions, size=100),
-        "Status": np.random.choice(["Open", "In Progress", "Closed"], size=100),
-        "Priority": np.random.choice(["High", "Medium", "Low"], size=100),
-        "Date Submitted": [
-            datetime.date(2023, 6, 1) + datetime.timedelta(days=random.randint(0, 182))
-            for _ in range(100)
-        ],
-    }
-    df = pd.DataFrame(data)
-
-    # Save the dataframe in session state (a dictionary-like object that persists across
-    # page runs). This ensures our data is persisted when the app updates.
-    st.session_state.df = df
-
-
-# Show a section to add a new ticket.
-st.header("Add a ticket")
-
-# We're adding tickets via an `st.form` and some input widgets. If widgets are used
-# in a form, the app will only rerun once the submit button is pressed.
-with st.form("add_ticket_form"):
-    issue = st.text_area("Describe the issue")
-    priority = st.selectbox("Priority", ["High", "Medium", "Low"])
-    submitted = st.form_submit_button("Submit")
-
-if submitted:
-    # Make a dataframe for the new ticket and append it to the dataframe in session
-    # state.
-    recent_ticket_number = int(max(st.session_state.df.ID).split("-")[1])
-    today = datetime.datetime.now().strftime("%m-%d-%Y")
-    df_new = pd.DataFrame(
-        [
-            {
-                "ID": f"TICKET-{recent_ticket_number+1}",
-                "Issue": issue,
-                "Status": "Open",
-                "Priority": priority,
-                "Date Submitted": today,
-            }
-        ]
-    )
-
-    # Show a little success message.
-    st.write("Ticket submitted! Here are the ticket details:")
-    st.dataframe(df_new, use_container_width=True, hide_index=True)
-    st.session_state.df = pd.concat([df_new, st.session_state.df], axis=0)
-
-# Show section to view and edit existing tickets in a table.
-st.header("Existing tickets")
-st.write(f"Number of tickets: `{len(st.session_state.df)}`")
-
+# Show information of the data
+st.header("Data overview")
 st.info(
-    "You can edit the tickets by double clicking on a cell. Note how the plots below "
+    "You can edit the data by double clicking on a cell. Note how the plots below "
     "update automatically! You can also sort the table by clicking on the column headers.",
     icon="✍️",
 )
-
-# Show the tickets dataframe with `st.data_editor`. This lets the user edit the table
+# Interaction Information
+st.header("Interactions between Users and Movies")
+st.write(f"Number of interactions: `{len(st.session_state.interactions)}`")
+# Show information of the data
 # cells. The edited data is returned as a new dataframe.
-edited_df = st.data_editor(
-    st.session_state.df,
+edited_interactions = st.data_editor(
+    st.session_state.interactions,
     use_container_width=True,
     hide_index=True,
     column_config={
-        "Status": st.column_config.SelectboxColumn(
-            "Status",
-            help="Ticket status",
-            options=["Open", "In Progress", "Closed"],
+        "Rating": st.column_config.SelectboxColumn(
+            "Rating",
+            help="Rating Types",
+            options=["1", "2", "3", "4", "5"],
             required=True,
-        ),
-        "Priority": st.column_config.SelectboxColumn(
-            "Priority",
-            help="Priority",
-            options=["High", "Medium", "Low"],
-            required=True,
-        ),
+        )
     },
     # Disable editing the ID and Date Submitted columns.
-    disabled=["ID", "Date Submitted"],
+    disabled=["User_ID", "Movie_ID", 'usage'],
+)
+# Users Information
+st.header("Users Information")
+st.write(f"Number of users: `{len(st.session_state.users)}`")
+# Show information of the data
+# cells. The edited data is returned as a new dataframe.
+edited_users = st.data_editor(
+    st.session_state.users,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Gender": st.column_config.SelectboxColumn(
+            "Gender",
+            help="Gender Types",
+            options=["F", "M"],
+            required=True,
+        )
+    },
+    # Disable editing the ID and Date Submitted columns.
+    disabled=['User_ID', 'Age', 'Occupation', 'Zip_code'],
+)
+# Movies Information
+st.header("Movie Information")
+st.write(f"Number of movies: `{len(st.session_state.movies)}`")
+# Show information of the data
+# cells. The edited data is returned as a new dataframe.
+edited_movies = st.data_editor(
+    st.session_state.movies,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Action": st.column_config.SelectboxColumn(
+            "Action",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Adventure": st.column_config.SelectboxColumn(
+            "Adventure",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Animation": st.column_config.SelectboxColumn(
+            "Animation",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Childrens": st.column_config.SelectboxColumn(
+            "Childrens",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Comedy": st.column_config.SelectboxColumn(
+            "Comedy",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Crime": st.column_config.SelectboxColumn(
+            "Crime",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Documentary": st.column_config.SelectboxColumn(
+            "Documentary",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Drama": st.column_config.SelectboxColumn(
+            "Drama",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Fantasy": st.column_config.SelectboxColumn(
+            "Fantasy",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Film-Noir": st.column_config.SelectboxColumn(
+            "Film-Noir",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Horror": st.column_config.SelectboxColumn(
+            "Horror",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Musical": st.column_config.SelectboxColumn(
+            "Musical",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Mystery": st.column_config.SelectboxColumn(
+            "Mystery",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Romance": st.column_config.SelectboxColumn(
+            "Romance",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Sci-Fi": st.column_config.SelectboxColumn(
+            "Sci-Fi",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Thriller": st.column_config.SelectboxColumn(
+            "Thriller",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "War": st.column_config.SelectboxColumn(
+            "War",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        ),
+        "Western": st.column_config.SelectboxColumn(
+            "Western",
+            help="Movie Types",
+            options=["0", "1"],
+            required=True,
+        )
+    },
+    # Disable editing the ID and Date Submitted columns.
+    disabled=['Movie_ID', 'Movie_Title', 'Release_Date', 'Video_Release_Date', 'IMDb_URL', 'unknown', 'usage'],
 )
 
-# Show some metrics and charts about the ticket.
-st.header("Statistics")
+# Show a section to add a new ticket.
+st.header("Start to Train the Model")
 
-# Show metrics side by side using `st.columns` and `st.metric`.
-col1, col2, col3 = st.columns(3)
-num_open_tickets = len(st.session_state.df[st.session_state.df.Status == "Open"])
-col1.metric(label="Number of open tickets", value=num_open_tickets, delta=10)
-col2.metric(label="First response time (hours)", value=5.2, delta=-1.5)
-col3.metric(label="Average resolution time (hours)", value=16, delta=2)
+Train = st.button("Train Model")
+if Train:
+    st.session_state.Results = train()
 
-# Show two Altair charts using `st.altair_chart`.
-st.write("")
-st.write("##### Ticket status per month")
-status_plot = (
-    alt.Chart(edited_df)
-    .mark_bar()
-    .encode(
-        x="month(Date Submitted):O",
-        y="count():Q",
-        xOffset="Status:N",
-        color="Status:N",
-    )
-    .configure_legend(
-        orient="bottom", titleFontSize=14, labelFontSize=14, titlePadding=5
-    )
+Load_model = st.button("Load Model", type="primary")
+if Load_model:
+    st.session_state.Results = eval()
+
+st.session_state.User_ID = st.number_input(
+    "Insert the User_ID", value=None, placeholder="Type a User_ID..."
 )
-st.altair_chart(status_plot, use_container_width=True, theme="streamlit")
+if st.session_state.User_ID:
+    st.session_state.User_ID = int(st.session_state.User_ID)
+st.write("The current User_ID is ", st.session_state.User_ID)
 
-st.write("##### Current ticket priorities")
-priority_plot = (
-    alt.Chart(edited_df)
-    .mark_arc()
-    .encode(theta="count():Q", color="Priority:N")
-    .properties(height=300)
-    .configure_legend(
-        orient="bottom", titleFontSize=14, labelFontSize=14, titlePadding=5
-    )
+st.session_state.Movie_ID = st.number_input(
+    "Insert the Movie_ID", value=None, placeholder="Type a Movie_ID..."
 )
-st.altair_chart(priority_plot, use_container_width=True, theme="streamlit")
+if st.session_state.Movie_ID:
+    Movie_ID = int(st.session_state.Movie_ID)
+st.write("The current Movie_ID is ", st.session_state.Movie_ID)
+
+# Show the Results
+st.header("Predict Result")
+Predict_Rating = None
+Predict = st.button("Predict", type="primary")
+# print(Predict)
+if Predict:
+    # print("Here is")
+    if st.session_state.Results is not None:
+        # print("Here")
+        if (st.session_state.User_ID is not None) and (st.session_state.Movie_ID is not None):
+            # print("here")
+            for index, row in interactions.iterrows():
+                # Access individual values with column names
+                user_node = row['User_ID']
+                movie_node = row['Movie_ID']
+                rating = row['Rating']
+                usage = row['usage']
+                if (user_node == st.session_state.User_ID) and (movie_node == st.session_state.Movie_ID) and (usage == 'train'):
+                    Predict_Rating = rating
+                    break
+                if (user_node == st.session_state.User_ID) and (movie_node == st.session_state.Movie_ID) and (usage == 'test'):
+                    Predict_Rating = st.session_state.Results[index]
+                    break
+
+st.write("The prediction of the rating between user ", st.session_state.User_ID, " and movie ", st.session_state.Movie_ID, "is: ", Predict_Rating)
+
+if Predict_Rating is not None:
+    if Predict_Rating >= 4:
+        st.write("Movie ", st.session_state.Movie_ID, " should be recommended to user ", st.session_state.User_ID)
+    else:
+        st.write("Movie ", st.session_state.Movie_ID, " should not be recommended to user ", st.session_state.User_ID)
