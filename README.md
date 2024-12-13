@@ -1,6 +1,6 @@
-# 🎫 Support tickets template
+# 🎫 Recommendation System
 
-A simple Streamlit app showing an internal tool that lets you create, manage, and visualize support tickets. 
+A simple Streamlit app showing a demo of how to use GNN-based autoencoder to implement a Recommender System.
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://support-tickets-template.streamlit.app/)
 
